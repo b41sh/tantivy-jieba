@@ -13,7 +13,7 @@ license = "MIT"
 jieba-rs = "0.8.0"
 lazy_static = "1.4.0"
 #tantivy-tokenizer-api = { git = "https://github.com/datafuse-extras/tantivy", rev = "9065a4d", package="tantivy-tokenizer-api" }
-tantivy-tokenizer-api = { git = "https://github.com/b41sh/tantivy", rev = "4d05b5294bc31893b8a3539ec96082beead17028", package="tantivy-tokenizer-api" }
+tantivy-tokenizer-api = { git = "https://github.com/b41sh/tantivy", rev = "3d1f9b9bbf14504f7e4c553ce1098ba867464d62", package="tantivy-tokenizer-api" }
 
 [dev-dependencies]
 tantivy = "0.25.0"

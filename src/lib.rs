@@ -58,6 +58,8 @@ pub struct JiebaTokenizer {
     search_mode: bool,
     /// Whether to use sequential ordinals instead of token offsets for Token.position
     ordinal_position_mode: bool,
+    /// Whether to enable HMM mode for tokenization (default: true)
+    hmm: bool,
     /// Optional custom jieba instance, uses global instance if None
     jieba: Option<jieba_rs::Jieba>,
 }
@@ -68,6 +70,7 @@ impl JiebaTokenizer {
         Self {
             search_mode: true,
             ordinal_position_mode: false,
+            hmm: true,
             jieba: None,
         }
     }
@@ -77,6 +80,7 @@ impl JiebaTokenizer {
         Self {
             search_mode,
             ordinal_position_mode: false,
+            hmm: true,
             jieba: None,
         }
     }
@@ -86,6 +90,7 @@ impl JiebaTokenizer {
         Self {
             search_mode: true,
             ordinal_position_mode,
+            hmm: true,
             jieba: None,
         }
     }
@@ -95,7 +100,18 @@ impl JiebaTokenizer {
         Self {
             search_mode: true,
             ordinal_position_mode: false,
+            hmm: true,
             jieba: Some(jieba),
+        }
+    }
+
+    /// Create a new JiebaTokenizer with specified hmm mode
+    pub fn with_hmm(hmm: bool) -> Self {
+        Self {
+            search_mode: true,
+            ordinal_position_mode: false,
+            hmm,
+            jieba: None,
         }
     }
 
@@ -117,6 +133,16 @@ impl JiebaTokenizer {
     /// Set the ordinal position mode
     pub fn set_ordinal_position_mode(&mut self, ordinal_position_mode: bool) {
         self.ordinal_position_mode = ordinal_position_mode;
+    }
+
+    /// Get the current hmm mode setting
+    pub fn hmm(&self) -> bool {
+        self.hmm
+    }
+
+    /// Set the hmm mode
+    pub fn set_hmm(&mut self, hmm: bool) {
+        self.hmm = hmm;
     }
 
     /// Set a custom jieba instance
@@ -147,8 +173,15 @@ impl Tokenizer for JiebaTokenizer {
                 text,
                 self.search_mode,
                 self.ordinal_position_mode,
+                self.hmm,
             ),
-            None => token_stream_common(&JIEBA, text, self.search_mode, self.ordinal_position_mode),
+            None => token_stream_common(
+                &JIEBA,
+                text,
+                self.search_mode,
+                self.ordinal_position_mode,
+                self.hmm,
+            ),
         }
     }
 }
@@ -199,13 +232,14 @@ fn token_stream_common<'str>(
     text: &'str str,
     search_mode: bool,
     ordinal_position_mode: bool,
+    hmm: bool,
 ) -> JiebaTokenStream<'str> {
     let mode = if search_mode {
         jieba_rs::TokenizeMode::Search
     } else {
         jieba_rs::TokenizeMode::Default
     };
-    let jieba_tokens = jieba.tokenize(text, mode, true);
+    let jieba_tokens = jieba.tokenize(text, mode, hmm);
     let token = jieba_tokens
         .first()
         .map(|token| Token {
@@ -322,5 +356,61 @@ mod tests {
         assert_eq!(tokens[0].position_length, 1);
         assert_eq!(tokens[1].position, 1);
         assert_eq!(tokens[1].position_length, 1);
+    }
+
+    #[test]
+    fn test_hmm_mode_disabled() {
+        use tantivy_tokenizer_api::{TokenStream, Tokenizer};
+
+        // "杭研" is a classic example — not in dictionary, HMM detects it
+        let text = "他来到了网易杭研大厦";
+
+        // With HMM enabled (default) — should recognize longer word segments
+        let mut tokenizer_hmm = crate::JiebaTokenizer::new();
+        let mut stream_hmm = tokenizer_hmm.token_stream(text);
+        let mut tokens_hmm = Vec::new();
+        while let Some(token) = stream_hmm.next() {
+            tokens_hmm.push(token.text.clone());
+        }
+
+        // With HMM disabled
+        let mut tokenizer_no_hmm = crate::JiebaTokenizer::with_hmm(false);
+        let mut stream_no_hmm = tokenizer_no_hmm.token_stream(text);
+        let mut tokens_no_hmm = Vec::new();
+        while let Some(token) = stream_no_hmm.next() {
+            tokens_no_hmm.push(token.text.clone());
+        }
+
+        // Results should differ — HMM helps detect unknown words like "杭研"
+        assert!(tokens_hmm.contains(&"杭研".to_string()));
+        assert!(!tokens_no_hmm.contains(&"杭研".to_string()));
+        assert_ne!(tokens_hmm, tokens_no_hmm);
+    }
+
+    #[test]
+    fn test_hmm_mode_setter() {
+        use tantivy_tokenizer_api::{TokenStream, Tokenizer};
+
+        let mut tokenizer = crate::JiebaTokenizer::new();
+        assert!(tokenizer.hmm());
+        tokenizer.set_hmm(false);
+        assert!(!tokenizer.hmm());
+
+        let text = "他来到了网易杭研大厦";
+        let mut stream = tokenizer.token_stream(text);
+        let mut tokens = Vec::new();
+        while let Some(token) = stream.next() {
+            tokens.push(token.text.clone());
+        }
+        // Results with HMM should differ from without HMM
+        let mut tokenizer_hmm = crate::JiebaTokenizer::new();
+        let mut stream_hmm = tokenizer_hmm.token_stream(text);
+        let mut tokens_hmm = Vec::new();
+        while let Some(token) = stream_hmm.next() {
+            tokens_hmm.push(token.text.clone());
+        }
+        assert!(tokens_hmm.contains(&"杭研".to_string()));
+        assert!(!tokens.contains(&"杭研".to_string()));
+        assert_ne!(tokens, tokens_hmm);
     }
 }
